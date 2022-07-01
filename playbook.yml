@@ -1,0 +1,101 @@
+---
+- hosts: webservers
+  vars:
+    COOKIE_ENCRYPT_PWD: __COOKIE_ENCRYPT_PWD__
+    HOST_URL: __HOST_URL__
+    OKTA_CLIENT_ID: __OKTA_CLIENT_ID__
+    OKTA_CLIENT_SECRET: __OKTA_CLIENT_SECRET__
+    OKTA_ORG_URL: __OKTA_ORG_URL__
+    PGHOST: __PGHOST__
+    PGPASSWORD: __PGPASSWORD__
+    PGPORT: __PGPORT__
+    PGUSERNAME: __PGUSERNAME__
+    PORT: __PORT__
+    lb_pub_ip: __lb_pub_ip__
+    
+  tasks:
+#   - name: Install curl git zip unzip packages
+#      apt:
+#        name:
+#          - curl
+#          - git
+#          - zip
+#          - unzip
+#        update_cache: yes
+
+    - name: Download NodeJS 14.X Repo
+      become: yes
+      shell: curl -sL https://deb.nodesource.com/setup_14.x | bash -
+
+    - name: Install NodeJS
+      become: yes
+      apt:
+        name: nodejs
+        state: present
+
+    - name: Creates directory
+      become: no
+      file:
+        path: ~/bootcamp-app/
+        state: directory
+
+    - name: unzip package
+      ansible.builtin.unarchive:
+        src: /home/gil/agent/_work/WT.zip
+        dest: ~/bootcamp-app/
+
+    - name: Install WebApp JS Package
+      ansible.builtin.shell:
+        chdir: ~/bootcamp-app/WT
+        cmd: npm install
+
+    - name: Creating a blablabla
+      copy:
+        dest: ~/bootcamp-app/WT/.env
+        content: |
+          # Host configuration
+          PORT={{ PORT }}
+          HOST={{ ansible_default_ipv4.address }}
+          NODE_ENV=development
+          HOST_URL=http://{{ lb_pub_ip }}:8080
+          COOKIE_ENCRYPT_PWD={{ COOKIE_ENCRYPT_PWD }}
+          # Okta configuration
+          OKTA_ORG_URL=https://{{ OKTA_ORG_URL }}
+          OKTA_CLIENT_ID={{ OKTA_CLIENT_ID }}
+          OKTA_CLIENT_SECRET={{ OKTA_CLIENT_SECRET }}
+          # Postgres configuration
+          PGHOST={{ PGHOST }}
+          PGUSERNAME=postgres
+          PGDATABASE=postgres
+          PGPASSWORD={{ PGPASSWORD }}
+          PGPORT={{ PGPORT }}
+
+    - name: Creates an entry in crontab
+      ansible.builtin.cron:
+        name: "run webapp"
+        special_time: reboot
+        job: "cd ~/bootcamp-app/WT/ && npm run dev"
+
+      # In case you want to skip or play only this specific task
+      tags:
+         - cron
+
+    # Sync & Init app with DB
+#    - name: Initalize App's Database
+#      ansible.builtin.shell:
+#        chdir: ~/bootcamp-app/
+#        cmd: npm run initdb
+
+      # In case you want to skip or play only this specific task
+#      tags:
+#         - initdb
+
+    - name: Reboot remote servers
+      become: yes
+      ansible.builtin.reboot:
+        msg: "Reboot by Ansible"
+        pre_reboot_delay: 2
+
+      # In case you want to skip or play only this specific task
+      tags:
+         - reboot
