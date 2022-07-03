@@ -11,23 +11,49 @@
     PGPORT: __PGPORT__
     PGUSERNAME: __PGUSERNAME__
     PORT: __PORT__
-    lb_pub_ip: __lb_pub_ip__
+    RESOURCE_GROUP: __RESOURCE_GROUP__
+    admin_username: __admin_username__
+    admin_password: __admin_password__
     
   tasks:
-#   - name: Install curl git zip unzip packages
-#      apt:
-#        name:
-#          - curl
-#          - git
-#          - zip
-#          - unzip
-#        update_cache: yes
+    - name: Get facts for all Public IPs within a resource groups
+      azure_rm_publicipaddress_info:
+        resource_group: "{{ RESOURCE_GROUP }}"
+      register: output_ip_address
 
-    - name: Download NodeJS 14.X Repo
+    - name: Get loadbalancer info
+      azure_rm_loadbalancer_info:
+        resource_group: "{{ RESOURCE_GROUP }}"
+        name: "{{ loadbalancer_name }}"
+      register: output
+
+    - name: Add all hosts
+      add_host:
+        groups: scalesethosts
+        hostname: "{{ output_ip_address.publicipaddresses[0].ip_address }}_{{ item.properties.frontendPort }}"
+        ansible_host: "{{ output_ip_address.publicipaddresses[0].ip_address }}"
+        ansible_port: "{{ item.properties.frontendPort }}"
+        ansible_ssh_user: "{{ admin_username }}"
+        ansible_ssh_pass: "{{ admin_password }}"
+      with_items:
+        - "{{ output.ansible_info.azure_loadbalancers[0].properties.inboundNatRules }}"
+
+    - name: Install curl, git, zip, gzip packages
       become: yes
-      shell: curl -sL https://deb.nodesource.com/setup_14.x | bash -
-
-    - name: Install NodeJS
+      apt:
+        name: 
+          - curl
+          - git
+          - zip
+          - gzip
+          
+        update_cache: yes
+      
+    - name: Download NodeJS 14.X Source
+      become: yes
+      shell: curl -sL https://deb.nodesource.com/setup_14.x | sudo bash -
+      
+    - name: Install NodeJS 
       become: yes
       apt:
         name: nodejs
@@ -41,7 +67,7 @@
 
     - name: unzip package
       ansible.builtin.unarchive:
-        src: /home/gil/agent/_work/WT.zip
+        src: ~/agent/_work/WT.zip
         dest: ~/bootcamp-app/
 
     - name: Install WebApp JS Package
@@ -49,18 +75,18 @@
         chdir: ~/bootcamp-app/WT
         cmd: npm install
 
-    - name: Creating a blablabla
+    - name: Creating env file
       copy:
         dest: ~/bootcamp-app/WT/.env
         content: |
           # Host configuration
           PORT={{ PORT }}
-          HOST={{ ansible_default_ipv4.address }}
+          HOST=0.0.0.0
           NODE_ENV=development
-          HOST_URL=http://{{ lb_pub_ip }}:8080
+          HOST_URL={{ HOST_URL }}
           COOKIE_ENCRYPT_PWD={{ COOKIE_ENCRYPT_PWD }}
           # Okta configuration
-          OKTA_ORG_URL=https://{{ OKTA_ORG_URL }}
+          OKTA_ORG_URL={{ OKTA_ORG_URL }}
           OKTA_CLIENT_ID={{ OKTA_CLIENT_ID }}
           OKTA_CLIENT_SECRET={{ OKTA_CLIENT_SECRET }}
           # Postgres configuration
@@ -81,14 +107,14 @@
          - cron
 
     # Sync & Init app with DB
-#    - name: Initalize App's Database
-#      ansible.builtin.shell:
-#        chdir: ~/bootcamp-app/
-#        cmd: npm run initdb
+    - name: Initalize App's Database
+      ansible.builtin.shell:
+        chdir: ~/bootcamp-app/WT
+        cmd: npm run initdb
 
       # In case you want to skip or play only this specific task
-#      tags:
-#         - initdb
+      tags:
+         - initdb
 
     - name: Reboot remote servers
       become: yes
